@@ -1,0 +1,17 @@
+{
+  "waiting_message": "Claude 醬在等你回覆喔",
+  "complete_message": "Claude 完成任務囉",
+  "title": "Claude Code",
+
+  "_comment_voice_options": "=== Edge TTS Voice Options ===",
+  "_voice_tw_1": "zh-TW-HsiaoChenNeural  - Taiwan Female, natural and gentle",
+  "_voice_tw_2": "zh-TW-HsiaoYuNeural    - Taiwan Female",
+  "_voice_tw_3": "zh-TW-YunJheNeural     - Taiwan Male",
+  "_voice_cn_1": "zh-CN-XiaoxiaoNeural   - China Female, lively and cute",
+  "_voice_cn_2": "zh-CN-XiaoyiNeural     - China Female, gentle (DEFAULT)",
+  "_voice_cn_3": "zh-CN-YunyangNeural    - China Male, news anchor style",
+  "_voice_en_1": "en-US-JennyNeural      - English Female",
+  "_voice_en_2": "en-US-GuyNeural        - English Male",
+
+  "voice": "zh-CN-XiaoyiNeural"
+}
