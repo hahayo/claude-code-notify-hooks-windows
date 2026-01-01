@@ -31,7 +31,7 @@ mkdir -p "$env:USERPROFILE\.claude\hooks"
   "hooks": {
     "Notification": [
       {
-        "matcher": ".",
+        "matcher": "idle_prompt",
         "hooks": [
           {
             "type": "command",

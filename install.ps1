@@ -89,7 +89,7 @@ $notifyScript = Join-Path $hooksDir "claude-notify.ps1"
 $hooksConfig = @{
     Notification = @(
         @{
-            matcher = "."
+            matcher = "idle_prompt"
             hooks = @(
                 @{
                     type = "command"

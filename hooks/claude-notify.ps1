@@ -10,6 +10,7 @@ param(
 # Get script directory
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
 $configPath = Join-Path $scriptDir "notify-config.json"
+$logPath = Join-Path $env:TEMP "claude-notify-error.log"
 
 # Default config
 $config = @{
@@ -46,7 +47,7 @@ if (Test-Path $configPath) {
         if ($loadedConfig.voice) { $config.voice = $loadedConfig.voice }
     }
     catch {
-        # Use defaults if config fails to load
+        "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [CONFIG] $_" | Out-File $logPath -Append
     }
 }
 
@@ -84,7 +85,7 @@ function Play-EdgeTTS {
             & $pythonCmd -m edge_tts --voice $VoiceName --text $Text --write-media $tempFile 2>&1 | Out-Null
 
             if (Test-Path $tempFile) {
-                # Use Windows Media Player COM object
+                # Use Windows Media Player
                 Add-Type -AssemblyName presentationCore
                 $mediaPlayer = New-Object System.Windows.Media.MediaPlayer
                 $mediaPlayer.Open([Uri]$tempFile)
@@ -93,32 +94,31 @@ function Play-EdgeTTS {
                 # Wait for audio to start
                 Start-Sleep -Milliseconds 500
 
-                # Wait for playback to complete (check duration)
-                while ($mediaPlayer.NaturalDuration.HasTimeSpan -eq $false) {
+                # Wait for playback to complete (with timeout to prevent infinite loop)
+                $timeout = 50  # Max 5 seconds
+                while ($mediaPlayer.NaturalDuration.HasTimeSpan -eq $false -and $timeout -gt 0) {
                     Start-Sleep -Milliseconds 100
+                    $timeout--
                 }
-                $duration = $mediaPlayer.NaturalDuration.TimeSpan.TotalMilliseconds
-                Start-Sleep -Milliseconds ($duration + 200)
 
+                if ($timeout -gt 0 -and $mediaPlayer.NaturalDuration.HasTimeSpan) {
+                    $duration = $mediaPlayer.NaturalDuration.TimeSpan.TotalMilliseconds
+                    Start-Sleep -Milliseconds ($duration + 200)
+                }
+
+                # Proper cleanup
                 $mediaPlayer.Close()
+                $mediaPlayer = $null
 
-                # Cleanup
+                # Cleanup temp file
                 Start-Sleep -Milliseconds 200
                 Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
             }
         }
     }
     catch {
-        # Fallback to Windows SAPI if edge-tts fails
-        try {
-            Add-Type -AssemblyName System.Speech
-            $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer
-            $synth.Speak($Text)
-            $synth.Dispose()
-        }
-        catch {
-            # Silent fail
-        }
+        # Log error instead of silent fail
+        "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [TTS] $_" | Out-File $logPath -Append
     }
 }
 
@@ -144,7 +144,8 @@ function Show-Notification {
         $balloon.Dispose()
     }
     catch {
-        # Silent fail for notification errors
+        # Log error instead of silent fail
+        "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [NOTIFY] $_" | Out-File $logPath -Append
     }
 }
 
