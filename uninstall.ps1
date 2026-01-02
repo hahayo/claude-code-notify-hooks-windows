@@ -31,26 +31,77 @@ if (Test-Path $configFile) {
     Write-Host "      Removed: notify-config.json" -ForegroundColor Green
 }
 
-# 2. Remove hooks from settings.json
-Write-Host "[2/2] Removing hooks from settings.json..." -ForegroundColor Yellow
+# 2. Remove only our hooks from settings.json (preserve user's other hooks)
+Write-Host "[2/2] Removing notification hooks from settings.json..." -ForegroundColor Yellow
+
+# Helper function to check if a hook entry belongs to this project
+function Test-IsOurHook {
+    param($hookEntry)
+    if ($hookEntry.hooks) {
+        foreach ($h in $hookEntry.hooks) {
+            if ($h.command -and $h.command -match "claude-notify\.ps1") {
+                return $true
+            }
+        }
+    }
+    return $false
+}
 
 if (Test-Path $settingsPath) {
-    $settings = Get-Content $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    try {
+        $settings = Get-Content $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
 
-    # Convert to hashtable
-    $settingsHash = @{}
-    $settings.PSObject.Properties | ForEach-Object {
-        $settingsHash[$_.Name] = $_.Value
-    }
+        if ($settings.hooks) {
+            # Convert to hashtable
+            $settingsHash = @{}
+            $settings.PSObject.Properties | ForEach-Object {
+                $settingsHash[$_.Name] = $_.Value
+            }
 
-    # Remove hooks
-    if ($settingsHash.ContainsKey("hooks")) {
-        $settingsHash.Remove("hooks")
-        $settingsHash | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding UTF8
-        Write-Host "      Removed hooks from settings.json" -ForegroundColor Green
+            # Filter out our hooks from each event type
+            $newHooks = @{}
+            $removedCount = 0
+
+            foreach ($eventType in $settings.hooks.PSObject.Properties.Name) {
+                $filteredEntries = @()
+                foreach ($entry in $settings.hooks.$eventType) {
+                    if (Test-IsOurHook $entry) {
+                        $removedCount++
+                    }
+                    else {
+                        $filteredEntries += $entry
+                    }
+                }
+                if ($filteredEntries.Count -gt 0) {
+                    $newHooks[$eventType] = $filteredEntries
+                }
+            }
+
+            # Update or remove hooks section
+            if ($newHooks.Count -gt 0) {
+                $settingsHash["hooks"] = $newHooks
+            }
+            else {
+                $settingsHash.Remove("hooks")
+            }
+
+            $settingsHash | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding UTF8
+
+            if ($removedCount -gt 0) {
+                Write-Host "      Removed $removedCount notification hook(s)" -ForegroundColor Green
+                Write-Host "      Other hooks preserved" -ForegroundColor Gray
+            }
+            else {
+                Write-Host "      No notification hooks found" -ForegroundColor Gray
+            }
+        }
+        else {
+            Write-Host "      No hooks found in settings.json" -ForegroundColor Gray
+        }
     }
-    else {
-        Write-Host "      No hooks found in settings.json" -ForegroundColor Gray
+    catch {
+        Write-Host "      Error parsing settings.json: $_" -ForegroundColor Red
+        Write-Host "      Please manually remove hooks from settings.json" -ForegroundColor Yellow
     }
 }
 

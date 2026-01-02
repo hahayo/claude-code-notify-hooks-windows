@@ -21,7 +21,7 @@ $sourceHooksDir = Join-Path $scriptDir "hooks"
 Write-Host "[1/5] Checking Python and edge-tts..." -ForegroundColor Yellow
 
 $pythonCmd = $null
-foreach ($cmd in @("python", "python3", "py")) {
+foreach ($cmd in @("py", "python", "python3")) {
     try {
         $version = & $cmd --version 2>&1
         if ($version -match "Python") {
@@ -41,16 +41,17 @@ if (-not $pythonCmd) {
     exit 1
 }
 
-# Install edge-tts
+# Install edge-tts with --user flag for better compatibility
 Write-Host "      Installing edge-tts..." -ForegroundColor Gray
-& $pythonCmd -m pip install edge-tts --quiet --disable-pip-version-check 2>&1 | Out-Null
+& $pythonCmd -m pip install edge-tts --user --quiet --disable-pip-version-check 2>&1 | Out-Null
 
-# Verify edge-tts installation
+# Verify edge-tts installation and update PATH
 $edgeTtsPath = & $pythonCmd -c "import shutil; print(shutil.which('edge-tts') or '')" 2>&1
-if (-not $edgeTtsPath -or $edgeTtsPath -eq "None") {
-    # Try to find it in Python Scripts folder
+if (-not $edgeTtsPath -or $edgeTtsPath -match "None") {
+    # Try to find it in Python Scripts folders (both system and user)
     $pythonScripts = & $pythonCmd -c "import sys; print(sys.prefix + '\\Scripts')" 2>&1
-    $env:Path = "$pythonScripts;$env:Path"
+    $userScripts = & $pythonCmd -c "import site; print(site.getusersitepackages().replace('site-packages', 'Scripts'))" 2>&1
+    $env:Path = "$userScripts;$pythonScripts;$env:Path"
 }
 
 try {
@@ -122,15 +123,94 @@ $hooksConfig = @{
     )
 }
 
-if (Test-Path $settingsPath) {
-    $settings = Get-Content $settingsPath -Raw -Encoding UTF8 | ConvertFrom-Json
-    $settingsHash = @{}
-    $settings.PSObject.Properties | ForEach-Object {
-        $settingsHash[$_.Name] = $_.Value
+# Helper function to check if a hook entry belongs to this project
+function Test-IsOurHook {
+    param($hookEntry)
+    if ($hookEntry.hooks) {
+        foreach ($h in $hookEntry.hooks) {
+            if ($h.command -and $h.command -match "claude-notify\.ps1") {
+                return $true
+            }
+        }
     }
-    $settingsHash["hooks"] = $hooksConfig
-    $settingsHash | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding UTF8
-    Write-Host "      Updated existing settings.json" -ForegroundColor Green
+    return $false
+}
+
+# Helper function to merge hooks (preserve user's other hooks)
+function Merge-Hooks {
+    param($existingHooks, $newHooks)
+
+    $result = @{}
+
+    # Process each event type (Notification, Stop, etc.)
+    $allEventTypes = @($existingHooks.PSObject.Properties.Name) + @($newHooks.Keys) | Select-Object -Unique
+
+    foreach ($eventType in $allEventTypes) {
+        $existingEntries = @()
+        $newEntries = @()
+
+        # Get existing entries (exclude our hooks)
+        if ($existingHooks.$eventType) {
+            foreach ($entry in $existingHooks.$eventType) {
+                if (-not (Test-IsOurHook $entry)) {
+                    $existingEntries += $entry
+                }
+            }
+        }
+
+        # Get new entries from our config
+        if ($newHooks[$eventType]) {
+            $newEntries = $newHooks[$eventType]
+        }
+
+        # Merge: existing (without ours) + new (ours)
+        $merged = @($existingEntries) + @($newEntries)
+        if ($merged.Count -gt 0) {
+            $result[$eventType] = $merged
+        }
+    }
+
+    return $result
+}
+
+if (Test-Path $settingsPath) {
+    # Backup original file
+    $backupPath = "$settingsPath.backup"
+    Copy-Item -Path $settingsPath -Destination $backupPath -Force
+    Write-Host "      Backup created: settings.json.backup" -ForegroundColor Gray
+
+    try {
+        $settingsContent = Get-Content $settingsPath -Raw -Encoding UTF8
+        $settings = $settingsContent | ConvertFrom-Json
+
+        # Convert to hashtable for manipulation
+        $settingsHash = @{}
+        $settings.PSObject.Properties | ForEach-Object {
+            $settingsHash[$_.Name] = $_.Value
+        }
+
+        # Merge hooks instead of overwriting
+        if ($settings.hooks) {
+            $mergedHooks = Merge-Hooks -existingHooks $settings.hooks -newHooks $hooksConfig
+            $settingsHash["hooks"] = $mergedHooks
+            Write-Host "      Merged with existing hooks configuration" -ForegroundColor Green
+        }
+        else {
+            $settingsHash["hooks"] = $hooksConfig
+            Write-Host "      Added hooks configuration" -ForegroundColor Green
+        }
+
+        $settingsHash | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding UTF8
+        Write-Host "      Updated settings.json" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "      Error parsing settings.json: $_" -ForegroundColor Red
+        Write-Host "      Restoring from backup..." -ForegroundColor Yellow
+        Copy-Item -Path $backupPath -Destination $settingsPath -Force
+        Write-Host "      Original settings.json restored." -ForegroundColor Yellow
+        Write-Host "      Please fix your settings.json manually or delete it to create a new one." -ForegroundColor Yellow
+        exit 1
+    }
 }
 else {
     $newSettings = @{

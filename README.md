@@ -21,7 +21,7 @@
 |------|------|
 | **Edge TTS 語音** | 使用 Microsoft Edge 神經網路語音，聲音自然不機械 |
 | **多種聲線** | 支援台灣中文、中國中文、英文等多種聲線 |
-| **桌面通知** | Windows Toast Notification |
+| **桌面通知** | Windows Balloon Notification |
 | **可自訂訊息** | 修改 JSON 配置檔即可自訂提醒文字 |
 | **一鍵安裝** | PowerShell 腳本自動安裝 edge-tts 並配置 |
 
@@ -75,7 +75,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 1. 安裝 edge-tts：
    ```powershell
-   pip install edge-tts
+   pip install edge-tts --user
    ```
 
 2. 建立資料夾：`%USERPROFILE%\.claude\hooks\`
@@ -89,11 +89,21 @@ powershell -ExecutionPolicy Bypass -File install.ps1
   "hooks": {
     "Notification": [
       {
-        "matcher": ".",
+        "matcher": "idle_prompt",
         "hooks": [
           {
             "type": "command",
             "command": "powershell -ExecutionPolicy Bypass -File \"C:\\Users\\YOUR_USERNAME\\.claude\\hooks\\claude-notify.ps1\" waiting",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"C:\\Users\\YOUR_USERNAME\\.claude\\hooks\\claude-notify.ps1\" permission",
             "timeout": 15
           }
         ]
@@ -126,6 +136,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 之後每當 Claude Code：
 - **等待你輸入** → 語音說「Claude 在等你回覆喔」
+- **需要確認命令** → 語音說「Claude 需要你的確認喔」
 - **完成任務** → 語音說「Claude 完成任務囉」
 
 ---
@@ -138,6 +149,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 {
   "waiting_message": "Claude 在等你回覆喔",
   "complete_message": "Claude 完成任務囉",
+  "permission_message": "Claude 需要你的確認喔",
   "title": "Claude Code",
   "voice": "zh-CN-XiaoyiNeural"
 }

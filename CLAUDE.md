@@ -7,7 +7,7 @@
 ### 1. 安裝 edge-tts Python 套件
 
 ```powershell
-py -m pip install edge-tts
+py -m pip install edge-tts --user
 ```
 
 ### 2. 建立 hooks 目錄
@@ -36,6 +36,16 @@ mkdir -p "$env:USERPROFILE\.claude\hooks"
           {
             "type": "command",
             "command": "powershell -ExecutionPolicy Bypass -File \"C:\\Users\\USERNAME\\.claude\\hooks\\claude-notify.ps1\" waiting",
+            "timeout": 15
+          }
+        ]
+      },
+      {
+        "matcher": "permission_prompt",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \"C:\\Users\\USERNAME\\.claude\\hooks\\claude-notify.ps1\" permission",
             "timeout": 15
           }
         ]
@@ -76,6 +86,7 @@ powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\hooks\claude-
 
 - `waiting_message`: 等待輸入時的提示訊息
 - `complete_message`: 任務完成時的提示訊息
+- `permission_message`: 需要確認命令時的提示訊息
 - `voice`: Edge TTS 語音（預設：`zh-CN-XiaoyiNeural`）
 
 ### 可用語音選項
