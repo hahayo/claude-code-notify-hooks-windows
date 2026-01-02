@@ -10,7 +10,7 @@
 
 當 Claude Code 完成任務或等待你輸入時：
 
-- 播放 Edge TTS 語音：「Claude 醬在等你回覆喔」（自然人聲）
+- 播放 Edge TTS 語音：「Claude 在等你回覆喔」（自然人聲）
 - 顯示 Windows 桌面通知
 
 ---
@@ -125,7 +125,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 **重新啟動 Claude Code** 讓 hooks 生效。
 
 之後每當 Claude Code：
-- **等待你輸入** → 語音說「Claude 醬在等你回覆喔」
+- **等待你輸入** → 語音說「Claude 在等你回覆喔」
 - **完成任務** → 語音說「Claude 完成任務囉」
 
 ---
@@ -136,7 +136,7 @@ powershell -ExecutionPolicy Bypass -File install.ps1
 
 ```json
 {
-  "waiting_message": "Claude 醬在等你回覆喔",
+  "waiting_message": "Claude 在等你回覆喔",
   "complete_message": "Claude 完成任務囉",
   "title": "Claude Code",
   "voice": "zh-CN-XiaoyiNeural"

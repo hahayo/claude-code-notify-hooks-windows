@@ -1,6 +1,7 @@
 {
-  "waiting_message": "Claude 醬在等你回覆喔",
+  "waiting_message": "Claude 在等你回覆喔",
   "complete_message": "Claude 完成任務囉",
+  "permission_message": "Claude 需要你的確認喔",
   "title": "Claude Code",
 
   "_comment_voice_options": "=== Edge TTS Voice Options ===",

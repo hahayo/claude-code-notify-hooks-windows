@@ -97,6 +97,16 @@ $hooksConfig = @{
                     timeout = 15
                 }
             )
+        },
+        @{
+            matcher = "permission_prompt"
+            hooks = @(
+                @{
+                    type = "command"
+                    command = "powershell -ExecutionPolicy Bypass -File `"$notifyScript`" permission"
+                    timeout = 15
+                }
+            )
         }
     )
     Stop = @(

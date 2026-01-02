@@ -3,7 +3,7 @@
 
 param(
     [Parameter(Position=0)]
-    [ValidateSet("waiting", "complete")]
+    [ValidateSet("waiting", "complete", "permission")]
     [string]$Mode = "waiting"
 )
 
@@ -16,6 +16,7 @@ $logPath = Join-Path $env:TEMP "claude-notify-error.log"
 $config = @{
     waiting_message = "Claude is waiting for your input"
     complete_message = "Claude completed the task"
+    permission_message = "Claude needs your permission"
     title = "Claude Code"
     # ============================================================
     # Edge TTS Voice Options (change "voice" value below)
@@ -43,6 +44,7 @@ if (Test-Path $configPath) {
         $loadedConfig = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
         if ($loadedConfig.waiting_message) { $config.waiting_message = $loadedConfig.waiting_message }
         if ($loadedConfig.complete_message) { $config.complete_message = $loadedConfig.complete_message }
+        if ($loadedConfig.permission_message) { $config.permission_message = $loadedConfig.permission_message }
         if ($loadedConfig.title) { $config.title = $loadedConfig.title }
         if ($loadedConfig.voice) { $config.voice = $loadedConfig.voice }
     }
@@ -52,7 +54,11 @@ if (Test-Path $configPath) {
 }
 
 # Select message based on mode
-$Message = if ($Mode -eq "complete") { $config.complete_message } else { $config.waiting_message }
+$Message = switch ($Mode) {
+    "complete" { $config.complete_message }
+    "permission" { $config.permission_message }
+    default { $config.waiting_message }
+}
 $Title = $config.title
 $Voice = $config.voice
 
