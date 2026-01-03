@@ -87,6 +87,13 @@ Write-Host "[4/5] Configuring hooks in settings.json..." -ForegroundColor Yellow
 
 $notifyScript = Join-Path $hooksDir "claude-notify.ps1"
 
+# Validate path to prevent command injection
+if ($notifyScript -match '[;&|<>`$]') {
+    Write-Host "      Error: Invalid characters in installation path" -ForegroundColor Red
+    Write-Host "      Please install to a path without special characters." -ForegroundColor Yellow
+    exit 1
+}
+
 $hooksConfig = @{
     Notification = @(
         @{
@@ -143,7 +150,13 @@ function Merge-Hooks {
     $result = @{}
 
     # Process each event type (Notification, Stop, etc.)
-    $allEventTypes = @($existingHooks.PSObject.Properties.Name) + @($newHooks.Keys) | Select-Object -Unique
+    # Safely get existing event types with null protection
+    $existingEventTypes = if ($existingHooks -and $existingHooks.PSObject.Properties) {
+        @($existingHooks.PSObject.Properties.Name)
+    } else {
+        @()
+    }
+    $allEventTypes = $existingEventTypes + @($newHooks.Keys) | Select-Object -Unique
 
     foreach ($eventType in $allEventTypes) {
         $existingEntries = @()
@@ -174,33 +187,47 @@ function Merge-Hooks {
 }
 
 if (Test-Path $settingsPath) {
-    # Backup original file
-    $backupPath = "$settingsPath.backup"
+    # Backup original file with timestamp (preserves multiple backups)
+    $timestamp = Get-Date -Format "yyyyMMdd_HHmmss"
+    $backupPath = "$settingsPath.backup.$timestamp"
     Copy-Item -Path $settingsPath -Destination $backupPath -Force
-    Write-Host "      Backup created: settings.json.backup" -ForegroundColor Gray
+    Write-Host "      Backup created: settings.json.backup.$timestamp" -ForegroundColor Gray
+
+    # Cleanup old backups (keep only last 5)
+    $backupFiles = Get-ChildItem -Path $claudeDir -Filter "settings.json.backup.*" | Sort-Object LastWriteTime -Descending
+    if ($backupFiles.Count -gt 5) {
+        $oldBackups = $backupFiles | Select-Object -Skip 5
+        foreach ($oldBackup in $oldBackups) {
+            Remove-Item $oldBackup.FullName -Force -ErrorAction SilentlyContinue
+            Write-Host "      Removed old backup: $($oldBackup.Name)" -ForegroundColor Gray
+        }
+    }
 
     try {
         $settingsContent = Get-Content $settingsPath -Raw -Encoding UTF8
         $settings = $settingsContent | ConvertFrom-Json
 
-        # Convert to hashtable for manipulation
-        $settingsHash = @{}
-        $settings.PSObject.Properties | ForEach-Object {
-            $settingsHash[$_.Name] = $_.Value
+        # Validate JSON parsing result
+        if ($null -eq $settings) {
+            throw "Failed to parse settings.json - file may be empty or contain invalid JSON"
         }
 
-        # Merge hooks instead of overwriting
+        # Merge hooks while preserving original JSON structure
         if ($settings.hooks) {
             $mergedHooks = Merge-Hooks -existingHooks $settings.hooks -newHooks $hooksConfig
-            $settingsHash["hooks"] = $mergedHooks
+            # Use Add-Member to preserve PSCustomObject structure
+            $settings.PSObject.Properties.Remove("hooks")
+            $settings | Add-Member -NotePropertyName "hooks" -NotePropertyValue $mergedHooks
             Write-Host "      Merged with existing hooks configuration" -ForegroundColor Green
         }
         else {
-            $settingsHash["hooks"] = $hooksConfig
+            # Add hooks property to existing settings object
+            $settings | Add-Member -NotePropertyName "hooks" -NotePropertyValue $hooksConfig
             Write-Host "      Added hooks configuration" -ForegroundColor Green
         }
 
-        $settingsHash | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding UTF8
+        # Convert back to JSON preserving structure
+        $settings | ConvertTo-Json -Depth 10 | Set-Content $settingsPath -Encoding UTF8
         Write-Host "      Updated settings.json" -ForegroundColor Green
     }
     catch {

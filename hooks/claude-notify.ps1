@@ -18,6 +18,7 @@ $config = @{
     complete_message = "Claude completed the task"
     permission_message = "Claude needs your permission"
     title = "Claude Code"
+    notification_duration = 5000  # Notification display time in milliseconds
     # ============================================================
     # Edge TTS Voice Options (change "voice" value below)
     # ============================================================
@@ -38,15 +39,37 @@ $config = @{
     voice = "zh-CN-XiaoyiNeural"
 }
 
-# Load config from file
+# Load config from file with validation
 if (Test-Path $configPath) {
     try {
         $loadedConfig = Get-Content $configPath -Raw -Encoding UTF8 | ConvertFrom-Json
-        if ($loadedConfig.waiting_message) { $config.waiting_message = $loadedConfig.waiting_message }
-        if ($loadedConfig.complete_message) { $config.complete_message = $loadedConfig.complete_message }
-        if ($loadedConfig.permission_message) { $config.permission_message = $loadedConfig.permission_message }
-        if ($loadedConfig.title) { $config.title = $loadedConfig.title }
-        if ($loadedConfig.voice) { $config.voice = $loadedConfig.voice }
+
+        # Validate and load string values (max 200 chars)
+        if ($loadedConfig.waiting_message -and $loadedConfig.waiting_message.Length -le 200) {
+            $config.waiting_message = $loadedConfig.waiting_message
+        }
+        if ($loadedConfig.complete_message -and $loadedConfig.complete_message.Length -le 200) {
+            $config.complete_message = $loadedConfig.complete_message
+        }
+        if ($loadedConfig.permission_message -and $loadedConfig.permission_message.Length -le 200) {
+            $config.permission_message = $loadedConfig.permission_message
+        }
+        if ($loadedConfig.title -and $loadedConfig.title.Length -le 100) {
+            $config.title = $loadedConfig.title
+        }
+
+        # Validate voice name format (alphanumeric with hyphens only)
+        if ($loadedConfig.voice -and $loadedConfig.voice -match '^[a-zA-Z0-9\-]+$') {
+            $config.voice = $loadedConfig.voice
+        }
+
+        # Validate notification_duration (positive integer, max 60 seconds)
+        if ($loadedConfig.notification_duration -and
+            $loadedConfig.notification_duration -is [int] -and
+            $loadedConfig.notification_duration -gt 0 -and
+            $loadedConfig.notification_duration -le 60000) {
+            $config.notification_duration = $loadedConfig.notification_duration
+        }
     }
     catch {
         "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [CONFIG] $_" | Out-File $logPath -Append
@@ -87,11 +110,38 @@ function Play-EdgeTTS {
         }
 
         if ($pythonCmd) {
-            # Use python -m edge_tts
-            & $pythonCmd -m edge_tts --voice $VoiceName --text $Text --write-media $tempFile 2>&1 | Out-Null
+            # Check if edge_tts module is installed
+            $moduleCheck = & $pythonCmd -c "import edge_tts" 2>&1
+            if ($LASTEXITCODE -ne 0) {
+                "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [TTS] edge-tts not installed. Run: pip install edge-tts --user" | Out-File $logPath -Append
+                return
+            }
 
-            if (Test-Path $tempFile) {
-                # Use Windows Media Player
+            # Use python -m edge_tts
+            $ttsOutput = & $pythonCmd -m edge_tts --voice $VoiceName --text $Text --write-media $tempFile 2>&1
+            $ttsExitCode = $LASTEXITCODE
+
+            # Validate edge-tts output
+            if ($ttsExitCode -ne 0) {
+                "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [TTS] edge-tts failed with exit code $ttsExitCode : $ttsOutput" | Out-File $logPath -Append
+                return
+            }
+
+            if (-not (Test-Path $tempFile)) {
+                "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [TTS] edge-tts did not create output file" | Out-File $logPath -Append
+                return
+            }
+
+            $fileSize = (Get-Item $tempFile).Length
+            if ($fileSize -eq 0) {
+                "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [TTS] edge-tts created empty file" | Out-File $logPath -Append
+                Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+                return
+            }
+
+            # Use Windows Media Player with proper resource management
+            $mediaPlayer = $null
+            try {
                 Add-Type -AssemblyName presentationCore
                 $mediaPlayer = New-Object System.Windows.Media.MediaPlayer
                 $mediaPlayer.Open([Uri]$tempFile)
@@ -111,14 +161,28 @@ function Play-EdgeTTS {
                     $duration = $mediaPlayer.NaturalDuration.TimeSpan.TotalMilliseconds
                     Start-Sleep -Milliseconds ($duration + 200)
                 }
+            }
+            finally {
+                # Ensure MediaPlayer is always disposed
+                if ($null -ne $mediaPlayer) {
+                    $mediaPlayer.Close()
+                    # Note: MediaPlayer doesn't implement IDisposable, but setting to null helps GC
+                    $mediaPlayer = $null
+                }
+            }
 
-                # Proper cleanup
-                $mediaPlayer.Close()
-                $mediaPlayer = $null
-
-                # Cleanup temp file
+            # Cleanup temp file with retry mechanism
+            $retryCount = 0
+            $maxRetries = 5
+            while ((Test-Path $tempFile) -and $retryCount -lt $maxRetries) {
                 Start-Sleep -Milliseconds 200
                 Remove-Item $tempFile -Force -ErrorAction SilentlyContinue
+                $retryCount++
+            }
+
+            # Log warning if cleanup failed
+            if (Test-Path $tempFile) {
+                "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [TTS] Warning: Failed to cleanup temp file after $maxRetries attempts: $tempFile" | Out-File $logPath -Append
             }
         }
     }
@@ -132,9 +196,11 @@ function Play-EdgeTTS {
 function Show-Notification {
     param(
         [string]$NotifyTitle,
-        [string]$NotifyMessage
+        [string]$NotifyMessage,
+        [int]$Duration = 5000
     )
 
+    $balloon = $null
     try {
         Add-Type -AssemblyName System.Windows.Forms
         $balloon = New-Object System.Windows.Forms.NotifyIcon
@@ -143,20 +209,25 @@ function Show-Notification {
         $balloon.BalloonTipTitle = $NotifyTitle
         $balloon.BalloonTipText = $NotifyMessage
         $balloon.Visible = $true
-        $balloon.ShowBalloonTip(5000)
+        $balloon.ShowBalloonTip($Duration)
 
-        # Wait for notification to show then cleanup
-        Start-Sleep -Milliseconds 5100
-        $balloon.Dispose()
+        # Wait for notification to show
+        Start-Sleep -Milliseconds ($Duration + 100)
     }
     catch {
         # Log error instead of silent fail
         "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') [NOTIFY] $_" | Out-File $logPath -Append
     }
+    finally {
+        # Ensure NotifyIcon is always disposed
+        if ($null -ne $balloon) {
+            $balloon.Dispose()
+        }
+    }
 }
 
 # ============ Main ============
 Play-EdgeTTS -Text $Message -VoiceName $Voice
-Show-Notification -NotifyTitle $Title -NotifyMessage $Message
+Show-Notification -NotifyTitle $Title -NotifyMessage $Message -Duration $config.notification_duration
 
 exit 0
